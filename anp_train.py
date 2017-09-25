@@ -174,21 +174,22 @@ def train(epoch):
         outputs = net(inputs)  # Forward Propagation
         loss = criterion(outputs, targets)  # Loss
 
-        # add ANP loss
-        # "first|1|2|3|last"
-        if args.anp_pos == "first":
-            loss += net.first_conv_out.norm()
-        elif args.anp_pos == "1":
-            loss += net.layer1_out.norm()
-        elif args.anp_pos == "2":
-            loss += net.layer2_out.norm()
-        elif args.anp_pos == "3":
-            loss += net.layer3_out.norm()
-        elif args.anp_pos == "last":  # default
-            loss += net.pre_softmax_out.norm()
-        else:
-            print('Error : choose anp_pos from first|1|2|3|last')
-            sys.exit(0)
+        if args.anp:
+            # add ANP loss
+            # "first|1|2|3|last"
+            if args.anp_pos == "first":
+                loss += net.first_conv_out.norm()
+            elif args.anp_pos == "1":
+                loss += net.layer1_out.norm()
+            elif args.anp_pos == "2":
+                loss += net.layer2_out.norm()
+            elif args.anp_pos == "3":
+                loss += net.layer3_out.norm()
+            elif args.anp_pos == "last":  # default
+                loss += net.pre_softmax_out.norm()
+            else:
+                print('Error : choose anp_pos from first|1|2|3|last')
+                sys.exit(0)
 
         loss.backward()  # Backward Propagation
         optimizer.step()  # Optimizer update
