@@ -37,6 +37,7 @@ parser.add_argument('--resume', '-r', action='store_true', help='resume from che
 parser.add_argument('--testOnly', '-t', action='store_true', help='Test mode with the saved model')
 parser.add_argument('--anp', action='store_true', help='turn on activation norm penalty')
 parser.add_argument('--anp_pos', default="last", help='run on the position of ANP: first|1|2|3|last', type=str)
+parser.add_argument('--noweight_decay', '-nwd', action='store_true', help='whether to turn off weight decay')
 args = parser.parse_args()
 
 # Hyper Parameter settings
@@ -106,7 +107,7 @@ if (args.testOnly):
 
     if use_cuda:
         net.cuda()
-        net = torch.nn.DataParallel(net, device_ids=range(torch.cuda.device_count()))
+        # net = torch.nn.DataParallel(net, device_ids=range(torch.cuda.device_count()))
         cudnn.benchmark = True
 
     net.eval()
@@ -148,7 +149,7 @@ else:
 
 if use_cuda:
     net.cuda()
-    net = torch.nn.DataParallel(net, device_ids=range(torch.cuda.device_count()))
+    # net = torch.nn.DataParallel(net, device_ids=range(torch.cuda.device_count()))
     cudnn.benchmark = True
 
 criterion = nn.CrossEntropyLoss()
@@ -163,7 +164,11 @@ def train(epoch):
     # TODO for ANP: activation norm penalty
     # we use per-parameter option for optim package: http://pytorch.org/docs/master/optim.html
     # you can grab parameters from each layer...
-    optimizer = optim.SGD(net.parameters(), lr=cf.learning_rate(args.lr, epoch), momentum=0.9, weight_decay=5e-4)
+    if args.noweight_decay:
+        wd = 0
+    else:
+        wd = 5e-4
+    optimizer = optim.SGD(net.parameters(), lr=cf.learning_rate(args.lr, epoch), momentum=0.9, weight_decay=wd)
 
     print('\n=> Training Epoch #%d, LR=%.4f' % (epoch, cf.learning_rate(args.lr, epoch)))
     for batch_idx, (inputs, targets) in enumerate(trainloader):
