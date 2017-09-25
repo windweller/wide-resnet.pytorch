@@ -36,6 +36,7 @@ parser.add_argument('--dataset', default='cifar10', type=str, help='dataset = [c
 parser.add_argument('--resume', '-r', action='store_true', help='resume from checkpoint')
 parser.add_argument('--testOnly', '-t', action='store_true', help='Test mode with the saved model')
 parser.add_argument('--anp', action='store_true', help='turn on activation norm penalty')
+parser.add_argument('--beta', default=0.001, type=float, help='turn on activation norm penalty')
 parser.add_argument('--anp_pos', default="last", help='run on the position of ANP: first|1|2|3|last', type=str)
 parser.add_argument('--noweight_decay', '-nwd', action='store_true', help='whether to turn off weight decay')
 args = parser.parse_args()
@@ -183,15 +184,15 @@ def train(epoch):
             # add ANP loss
             # "first|1|2|3|last"
             if args.anp_pos == "first":
-                loss += net.first_conv_out.norm()
+                loss += net.first_conv_out.norm() * args.beta
             elif args.anp_pos == "1":
-                loss += net.layer1_out.norm()
+                loss += net.layer1_out.norm() * args.beta
             elif args.anp_pos == "2":
-                loss += net.layer2_out.norm()
+                loss += net.layer2_out.norm() * args.beta
             elif args.anp_pos == "3":
-                loss += net.layer3_out.norm()
+                loss += net.layer3_out.norm() * args.beta
             elif args.anp_pos == "last":  # default
-                loss += net.pre_softmax_out.norm()
+                loss += net.pre_softmax_out.norm() * args.beta
             else:
                 print('Error : choose anp_pos from first|1|2|3|last')
                 sys.exit(0)
