@@ -36,8 +36,8 @@ parser.add_argument('--dataset', default='cifar10', type=str, help='dataset = [c
 parser.add_argument('--resume', '-r', action='store_true', help='resume from checkpoint')
 parser.add_argument('--testOnly', '-t', action='store_true', help='Test mode with the saved model')
 parser.add_argument('--anp', action='store_true', help='turn on activation norm penalty')
-parser.add_argument('--beta', default=0.001, type=float, help='turn on activation norm penalty')
-parser.add_argument('--anp_pos', default="last", help='run on the position of ANP: first|1|2|3|last', type=str)
+parser.add_argument('--beta', default=0.0002, type=float, help='turn on activation norm penalty')
+parser.add_argument('--anp_pos', default="last", help='run on the position of ANP: first|1|2|3|relu|last', type=str)
 parser.add_argument('--noweight_decay', '-nwd', action='store_true', help='whether to turn off weight decay')
 args = parser.parse_args()
 
@@ -155,6 +155,10 @@ if use_cuda:
 
 criterion = nn.CrossEntropyLoss()
 
+def kl_norm(output):
+    # x: (batch_size x output_dim)
+    return torch.sum(output ** 2) / 2.
+
 # Training
 def train(epoch):
     net.train()
@@ -184,17 +188,19 @@ def train(epoch):
             # add ANP loss
             # "first|1|2|3|last"
             if args.anp_pos == "first":
-                loss += net.first_conv_out.norm() * args.beta
+                loss += kl_norm(net.first_conv_out) * args.beta
             elif args.anp_pos == "1":
-                loss += net.layer1_out.norm() * args.beta
+                loss += kl_norm(net.layer1_out) * args.beta
             elif args.anp_pos == "2":
-                loss += net.layer2_out.norm() * args.beta
+                loss += kl_norm(net.layer2_out) * args.beta
             elif args.anp_pos == "3":
-                loss += net.layer3_out.norm() * args.beta
+                loss += kl_norm(net.layer3_out) * args.beta
+            elif args.anp_pos == "relu":
+                loss += kl_norm(net.relu_out) * args.beta
             elif args.anp_pos == "last":  # default
-                loss += net.pre_softmax_out.norm() * args.beta
+                loss += kl_norm(net.pre_softmax_out) * args.beta
             else:
-                print('Error : choose anp_pos from first|1|2|3|last')
+                print('Error : choose anp_pos from first|1|2|3|relu|last')
                 sys.exit(0)
 
         loss.backward()  # Backward Propagation
@@ -237,7 +243,7 @@ def test(epoch):
     if acc > best_acc:
         print('| Saving Best model...\t\t\tTop1 = %.2f%%' % (acc))
         state = {
-            'net': net.module if use_cuda else net,
+            'net': net, # net.module if use_cuda else net,
             'acc': acc,
             'epoch': epoch,
         }
