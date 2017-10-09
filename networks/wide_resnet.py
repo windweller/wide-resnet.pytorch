@@ -72,10 +72,10 @@ class Wide_ResNet(nn.Module):
 
     def forward(self, x):
         self.first_conv_out = self.conv1(x)
-        self.layer1_out = self.layer1(self.first_conv_out)
-        self.layer2_out = self.layer2(self.layer1_out)
-        self.layer3_out = self.layer3(self.layer2_out)
-        self.relu_out = out = F.relu(self.bn1(self.layer3_out))
+        self.block1_out = self.layer1(self.first_conv_out)
+        self.block2_out = self.layer2(self.block1_out)
+        self.block3_out = self.layer3(self.block2_out)
+        self.relu_out = out = F.relu(self.bn1(self.block3_out))
         # pooling, variation
         self.pre_softmax_out = out = F.avg_pool2d(out, 8)
         # the "decoder", classifier

@@ -22,14 +22,21 @@ import sys
 import time
 import argparse
 import datetime
+import logging
 
 from networks import *
 from torch.autograd import Variable
+
+logging.basicConfig(format='[%(asctime)s] %(levelname)s: %(message)s',
+                    datefmt='%m/%d/%Y %I:%M:%S %p', level=logging.INFO)
+logger = logging.getLogger(__name__)
+logger.addHandler(logging.StreamHandler())
 
 parser = argparse.ArgumentParser(description='PyTorch CIFAR-10 Training')
 parser.add_argument('--lr', default=0.1, type=float, help='learning_rate')
 parser.add_argument('--net_type', default='wide-resnet', type=str, help='model')
 parser.add_argument('--depth', default=28, type=int, help='depth of model')
+parser.add_argument('--seed', default=123, type=int, help='fix the random seed, so it is comparable')
 parser.add_argument('--widen_factor', default=10, type=int, help='width of model')
 parser.add_argument('--dropout', default=0.3, type=float, help='dropout_rate')
 parser.add_argument('--dataset', default='cifar10', type=str, help='dataset = [cifar10/cifar100]')
@@ -39,12 +46,25 @@ parser.add_argument('--anp', action='store_true', help='turn on activation norm 
 parser.add_argument('--beta', default=0.0002, type=float, help='turn on activation norm penalty')
 parser.add_argument('--anp_pos', default="last", help='run on the position of ANP: first|1|2|3|relu|last', type=str)
 parser.add_argument('--noweight_decay', '-nwd', action='store_true', help='whether to turn off weight decay')
+parser.add_argument('--checkpoint', default='checkpoint', type=str, help='input the checkpoint folder name')
+parser.add_argument('--run_dir', default='sandbox', type=str, help='where the model should be saved')
 args = parser.parse_args()
+
+torch.manual_seed(args.seed)
 
 # Hyper Parameter settings
 use_cuda = torch.cuda.is_available()
+if use_cuda:
+    torch.cuda.manual_seed_all(args.seed)
+
 best_acc = 0
 start_epoch, num_epochs, batch_size, optim_type = cf.start_epoch, cf.num_epochs, cf.batch_size, cf.optim_type
+
+# Open a file for Logger to save
+if not os.path.exists(args.run_dir):
+    os.makedirs(args.run_dir)
+file_handler = logging.FileHandler("{0}/log.txt".format(args.run_dir))
+logger.addHandler(file_handler)
 
 # Data Uplaod
 print('\n[Phase 1] : Data Preparation')
@@ -100,10 +120,10 @@ def getNetwork(args):
 
 # Test only option
 if (args.testOnly):
-    print('\n[Test Phase] : Model setup')
-    assert os.path.isdir('checkpoint'), 'Error: No checkpoint directory found!'
+    logger.info('\n[Test Phase] : Model setup')
+    assert os.path.isdir(args.checkpoint), 'Error: No checkpoint directory found!'
     _, file_name = getNetwork(args)
-    checkpoint = torch.load('./checkpoint/' + args.dataset + os.sep + file_name + '.t7')
+    checkpoint = torch.load('./' + args.run_dir + '/' +args.checkpoint+'/' + args.dataset + os.sep + file_name + '.t7')
     net = checkpoint['net']
 
     if use_cuda:
@@ -128,7 +148,7 @@ if (args.testOnly):
 
     # Save checkpoint when best model
     acc = 100. * correct / total
-    print("| Test Result\tAcc@1: %.2f%%" % (acc))
+    logger.info("| Test Result\tAcc@1: %.2f%%" % (acc))
 
     sys.exit(0)
 
@@ -136,15 +156,15 @@ if (args.testOnly):
 print('\n[Phase 2] : Model setup')
 if args.resume:
     # Load checkpoint
-    print('| Resuming from checkpoint...')
+    logger.info('| Resuming from checkpoint...')
     assert os.path.isdir('checkpoint'), 'Error: No checkpoint directory found!'
     _, file_name = getNetwork(args)
-    checkpoint = torch.load('./checkpoint/' + args.dataset + os.sep + file_name + '.t7')
+    checkpoint = torch.load('./' + args.checkpoint +'/' + args.dataset + os.sep + file_name + '.t7')
     net = checkpoint['net']
     best_acc = checkpoint['acc']
     start_epoch = checkpoint['epoch']
 else:
-    print('| Building net type [' + args.net_type + ']...')
+    logger.info('| Building net type [' + args.net_type + ']...')
     net, file_name = getNetwork(args)
     net.apply(conv_init)
 
@@ -157,7 +177,7 @@ criterion = nn.CrossEntropyLoss()
 
 def kl_norm(output):
     # x: (batch_size x output_dim)
-    return torch.sum(output ** 2) / 2.
+    return output.pow(2).sum() / 2.
 
 # Training
 def train(epoch):
@@ -175,7 +195,7 @@ def train(epoch):
         wd = 5e-4
     optimizer = optim.SGD(net.parameters(), lr=cf.learning_rate(args.lr, epoch), momentum=0.9, weight_decay=wd)
 
-    print('\n=> Training Epoch #%d, LR=%.4f' % (epoch, cf.learning_rate(args.lr, epoch)))
+    logger.info('\n=> Training Epoch #%d, LR=%.4f' % (epoch, cf.learning_rate(args.lr, epoch)))
     for batch_idx, (inputs, targets) in enumerate(trainloader):
         if use_cuda:
             inputs, targets = inputs.cuda(), targets.cuda()  # GPU settings
@@ -188,21 +208,22 @@ def train(epoch):
             # add ANP loss
             # "first|1|2|3|last"
             if args.anp_pos == "first":
-                loss += kl_norm(net.first_conv_out) * args.beta
+                ixh = kl_norm(net.first_conv_out) * args.beta
             elif args.anp_pos == "1":
-                loss += kl_norm(net.layer1_out) * args.beta
+                ixh = kl_norm(net.block1_out) * args.beta
             elif args.anp_pos == "2":
-                loss += kl_norm(net.layer2_out) * args.beta
+                ixh = kl_norm(net.block2_out) * args.beta
             elif args.anp_pos == "3":
-                loss += kl_norm(net.layer3_out) * args.beta
+                ixh = kl_norm(net.block3_out) * args.beta
             elif args.anp_pos == "relu":
-                loss += kl_norm(net.relu_out) * args.beta
+                ixh = kl_norm(net.relu_out) * args.beta
             elif args.anp_pos == "last":  # default
-                loss += kl_norm(net.pre_softmax_out) * args.beta
+                ixh = kl_norm(net.pre_softmax_out) * args.beta
             else:
                 print('Error : choose anp_pos from first|1|2|3|relu|last')
                 sys.exit(0)
 
+        loss += ixh
         loss.backward()  # Backward Propagation
         optimizer.step()  # Optimizer update
 
@@ -212,10 +233,14 @@ def train(epoch):
         correct += predicted.eq(targets.data).cpu().sum()
 
         sys.stdout.write('\r')
-        sys.stdout.write('| Epoch [%3d/%3d] Iter[%3d/%3d]\t\tLoss: %.4f Acc@1: %.3f%%'
+        sys.stdout.write('| Epoch [%3d/%3d] Iter[%3d/%3d]\t\tLoss: %.4f Acc@1: %.3f%% ixh: %.3f%%'
                          % (epoch, num_epochs, batch_idx + 1,
-                            (len(trainset) // batch_size) + 1, loss.data[0], 100. * correct / total))
+                            (len(trainset) // batch_size) + 1, loss.data[0], 100. * correct / total, ixh))
         sys.stdout.flush()
+
+    # end of training iteration
+    logger.info('|Train Epoch [%3d/%3d] Final Iter \t\tLoss: %.4f Acc@1: %.3f%% ixh: %.3f%%'
+                         % (epoch, num_epochs, loss.data[0], 100. * correct / total, ixh))
 
 
 def test(epoch):
@@ -238,18 +263,18 @@ def test(epoch):
 
     # Save checkpoint when best model
     acc = 100. * correct / total
-    print("\n| Validation Epoch #%d\t\t\tLoss: %.4f Acc@1: %.2f%%" % (epoch, loss.data[0], acc))
+    logger.info("\n| Validation Epoch #%d\t\t\tLoss: %.4f Acc@1: %.2f%%" % (epoch, loss.data[0], acc))
 
     if acc > best_acc:
-        print('| Saving Best model...\t\t\tTop1 = %.2f%%' % (acc))
+        logger.info('| Saving Best model...\t\t\tTop1 = %.2f%%' % (acc))
         state = {
             'net': net, # net.module if use_cuda else net,
             'acc': acc,
             'epoch': epoch,
         }
-        if not os.path.isdir('checkpoint'):
-            os.mkdir('checkpoint')
-        save_point = './checkpoint/' + args.dataset + os.sep
+        if not os.path.isdir(args.checkpoint):
+            os.mkdir(args.checkpoint)
+        save_point = './' + args.checkpoint + "/" + args.dataset + os.sep
         if not os.path.isdir(save_point):
             os.mkdir(save_point)
         torch.save(state, save_point + file_name + '.t7')
@@ -257,9 +282,9 @@ def test(epoch):
 
 
 print('\n[Phase 3] : Training model')
-print('| Training Epochs = ' + str(num_epochs))
-print('| Initial Learning Rate = ' + str(args.lr))
-print('| Optimizer = ' + str(optim_type))
+logger.info('| Training Epochs = ' + str(num_epochs))
+logger.info('| Initial Learning Rate = ' + str(args.lr))
+logger.info('| Optimizer = ' + str(optim_type))
 
 elapsed_time = 0
 for epoch in range(start_epoch, start_epoch + num_epochs):
@@ -270,7 +295,7 @@ for epoch in range(start_epoch, start_epoch + num_epochs):
 
     epoch_time = time.time() - start_time
     elapsed_time += epoch_time
-    print('| Elapsed time : %d:%02d:%02d' % (cf.get_hms(elapsed_time)))
+    logger.info('| Elapsed time : %d:%02d:%02d' % (cf.get_hms(elapsed_time)))
 
-print('\n[Phase 4] : Testing model')
-print('* Test results : Acc@1 = %.2f%%' % (best_acc))
+logger.info('\n[Phase 4] : Testing model')
+logger.info('* Test results : Acc@1 = %.2f%%' % (best_acc))
