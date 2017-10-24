@@ -235,7 +235,7 @@ def train(epoch):
         total += targets.size(0)
         correct += predicted.eq(targets.data).cpu().sum()
 
-        if ixh != 0.:
+        if ixh is not None:
             ixh = ixh.data[0]
 
         sys.stdout.write('\r')
