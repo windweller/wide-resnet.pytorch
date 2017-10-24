@@ -48,6 +48,7 @@ parser.add_argument('--anp_pos', default="last", help='run on the position of AN
 parser.add_argument('--noweight_decay', '-nwd', action='store_true', help='whether to turn off weight decay')
 parser.add_argument('--checkpoint', default='checkpoint', type=str, help='input the checkpoint folder name')
 parser.add_argument('--run_dir', default='sandbox', type=str, help='where the model should be saved')
+parser.add_argument('--gpu', default=0, type=int, help='choose the gpu')
 args = parser.parse_args()
 
 torch.manual_seed(args.seed)
@@ -127,7 +128,7 @@ if (args.testOnly):
     net = checkpoint['net']
 
     if use_cuda:
-        net.cuda()
+        net.cuda(args.gpu)
         # net = torch.nn.DataParallel(net, device_ids=range(torch.cuda.device_count()))
         cudnn.benchmark = True
 
@@ -138,7 +139,7 @@ if (args.testOnly):
 
     for batch_idx, (inputs, targets) in enumerate(testloader):
         if use_cuda:
-            inputs, targets = inputs.cuda(), targets.cuda()
+            inputs, targets = inputs.cuda(args.gpu), targets.cuda(args.gpu)
         inputs, targets = Variable(inputs, volatile=True), Variable(targets)
         outputs = net(inputs)
 
@@ -169,7 +170,7 @@ else:
     net.apply(conv_init)
 
 if use_cuda:
-    net.cuda()
+    net.cuda(args.gpu)
     # net = torch.nn.DataParallel(net, device_ids=range(torch.cuda.device_count()))
     cudnn.benchmark = True
 
@@ -198,14 +199,16 @@ def train(epoch):
     logger.info('\n=> Training Epoch #%d, LR=%.4f' % (epoch, cf.learning_rate(args.lr, epoch)))
     for batch_idx, (inputs, targets) in enumerate(trainloader):
         if use_cuda:
-            inputs, targets = inputs.cuda(), targets.cuda()  # GPU settings
+            inputs, targets = inputs.cuda(args.gpu), targets.cuda(args.gpu)  # GPU settings
         optimizer.zero_grad()
         inputs, targets = Variable(inputs), Variable(targets)
         outputs = net(inputs)  # Forward Propagation
         loss = criterion(outputs, targets)  # Loss
 
+        ixh = None
         if args.anp:
             # add ANP loss
+            # "series/sequence loss can be applied here!"
             # "first|1|2|3|last"
             if args.anp_pos == "first":
                 ixh = kl_norm(net.first_conv_out) * args.beta
@@ -232,14 +235,17 @@ def train(epoch):
         total += targets.size(0)
         correct += predicted.eq(targets.data).cpu().sum()
 
+        if ixh != 0.:
+            ixh = ixh.data[0]
+
         sys.stdout.write('\r')
-        sys.stdout.write('| Epoch [%3d/%3d] Iter[%3d/%3d]\t\tLoss: %.4f Acc@1: %.3f%% ixh: %.3f%%'
+        sys.stdout.write('| Epoch [%3d/%3d] Iter[%3d/%3d]\t\tLoss: %.4f Acc@1: %.3f%% ixh: %.3f'
                          % (epoch, num_epochs, batch_idx + 1,
                             (len(trainset) // batch_size) + 1, loss.data[0], 100. * correct / total, ixh))
         sys.stdout.flush()
 
     # end of training iteration
-    logger.info('|Train Epoch [%3d/%3d] Final Iter \t\tLoss: %.4f Acc@1: %.3f%% ixh: %.3f%%'
+    logger.info('|Train Epoch [%3d/%3d] Final Iter \t\tLoss: %.4f Acc@1: %.3f%% ixh: %.3f'
                          % (epoch, num_epochs, loss.data[0], 100. * correct / total, ixh))
 
 
@@ -251,7 +257,7 @@ def test(epoch):
     total = 0
     for batch_idx, (inputs, targets) in enumerate(testloader):
         if use_cuda:
-            inputs, targets = inputs.cuda(), targets.cuda()
+            inputs, targets = inputs.cuda(args.gpu), targets.cuda(args.gpu)
         inputs, targets = Variable(inputs, volatile=True), Variable(targets)
         outputs = net(inputs)
         loss = criterion(outputs, targets)
