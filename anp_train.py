@@ -211,22 +211,22 @@ def train(epoch):
             # "series/sequence loss can be applied here!"
             # "first|1|2|3|last"
             if args.anp_pos == "first":
-                ixh = kl_norm(net.first_conv_out) * args.beta
+                ixh = kl_norm(net.first_conv_out)
             elif args.anp_pos == "1":
-                ixh = kl_norm(net.block1_out) * args.beta
+                ixh = kl_norm(net.block1_out)
             elif args.anp_pos == "2":
-                ixh = kl_norm(net.block2_out) * args.beta
+                ixh = kl_norm(net.block2_out)
             elif args.anp_pos == "3":
-                ixh = kl_norm(net.block3_out) * args.beta
+                ixh = kl_norm(net.block3_out)
             elif args.anp_pos == "relu":
-                ixh = kl_norm(net.relu_out) * args.beta
+                ixh = kl_norm(net.relu_out)
             elif args.anp_pos == "last":  # default
-                ixh = kl_norm(net.pre_softmax_out) * args.beta
+                ixh = kl_norm(net.pre_softmax_out)
             else:
                 print('Error : choose anp_pos from first|1|2|3|relu|last')
                 sys.exit(0)
 
-        loss += ixh
+        loss += ixh * args.beta
         loss.backward()  # Backward Propagation
         optimizer.step()  # Optimizer update
 
